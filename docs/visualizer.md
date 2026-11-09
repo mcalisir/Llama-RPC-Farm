@@ -3,6 +3,23 @@
 Both tabs consume the same llama-swap feeds; the visualizer parses
 structured events, the Logs tab shows raw lines.
 
+## Debug logging setting
+
+The per-tensor lines and verbose chunk lines the visualizer animates
+exist only while **Settings > Defaults > Verbose llama.cpp debug
+logging** is on (`debug_logging: true` in `config/settings.yaml`, off by
+default). On, llama-server gets `-v` and every llama-server/rpc-server
+gets `GGML_SCHED_DEBUG=3` + `GGML_RPC_DEBUG=3`. Off, both variables are
+set to `0` (measured: same as unset), which also overrides a peer
+agent's own `3` default.
+
+It is off by default because the output is one or more lines per
+compute step: under steady embedding traffic one peer's rpc-server log
+grew to 1.18 GB in about 50 minutes, and llama-server's output pushed
+older lines out of llama-swap's log buffer within minutes. The setting
+is read at launch, so running rpc-servers keep their environment until
+Stop All + Launch All.
+
 ## Data sources
 
 llama-swap exposes three HTTP log streams:

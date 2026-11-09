@@ -1326,7 +1326,8 @@ def launch_plan(config_path=None, host_name=None):
 def _swap_env(host_name):
     """llama-swap daemon env, per GPU vendor of the host machine.
     CUDA_DEVICE_ORDER is NVIDIA-only; on AMD hosts only P2P is set.
-    GGML_SCHED_DEBUG=3 is always added (ground truth for visualizer)."""
+    GGML_SCHED_DEBUG / GGML_RPC_DEBUG follow the debug_logging setting
+    ("3" for the Flow Visualizer, else "0")."""
     import gpu_vendor
     host = None
     try:
@@ -1336,7 +1337,8 @@ def _swap_env(host_name):
     v = gpu_vendor.normalize_vendor((host or {}).get("gpu_vendor"))
     # Generic debug flags apply to every backend/OS. Vendor env only where
     # it means something: Metal/CPU need none; AMD/Intel get their own.
-    base = {"GGML_SCHED_DEBUG": "3", "GGML_RPC_DEBUG": "3"}
+    import debug_logging
+    base = debug_logging.env()
     if v in ("apple", "cpu"):
         return base
     if v == "amd":

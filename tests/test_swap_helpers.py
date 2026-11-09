@@ -41,12 +41,28 @@ def test_swap_key_falls_back_to_name_and_file():
 
 def test_swap_env_nvidia(monkeypatch):
     import config_loader as cfg
+    import debug_logging
     monkeypatch.setattr(cfg.machines, "require",
                         lambda n: _host(gpu_vendor="nvidia"))
+    monkeypatch.setattr(debug_logging, "enabled", lambda: True)
     env = swap_manager._swap_env("aibox1")
     assert env["GGML_SCHED_DEBUG"] == "3"
+    assert env["GGML_RPC_DEBUG"] == "3"
     assert env["CUDA_DEVICE_ORDER"] == "PCI_BUS_ID"
     assert env["GGML_CUDA_P2P"] == "1"
+
+
+def test_swap_env_debug_off(monkeypatch):
+    """Debug logging off (default): the variables are set to "0"."""
+    import config_loader as cfg
+    import debug_logging
+    monkeypatch.setattr(cfg.machines, "require",
+                        lambda n: _host(gpu_vendor="nvidia"))
+    monkeypatch.setattr(debug_logging, "enabled", lambda: False)
+    env = swap_manager._swap_env("aibox1")
+    assert env["GGML_SCHED_DEBUG"] == "0"
+    assert env["GGML_RPC_DEBUG"] == "0"
+    assert env["CUDA_DEVICE_ORDER"] == "PCI_BUS_ID"
 
 
 def test_swap_env_amd_and_intel(monkeypatch):

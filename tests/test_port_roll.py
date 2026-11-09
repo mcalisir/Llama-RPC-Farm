@@ -18,6 +18,19 @@ import pytest
 import rpc_manager
 
 
+@pytest.fixture
+def debug_on(monkeypatch):
+    """Turn the debug_logging setting on (Flow Visualizer output)."""
+    import debug_logging
+    monkeypatch.setattr(debug_logging, "enabled", lambda: True)
+
+
+@pytest.fixture
+def debug_off(monkeypatch):
+    import debug_logging
+    monkeypatch.setattr(debug_logging, "enabled", lambda: False)
+
+
 def _fresh_free_port():
     """Find a port that is (a) actually bindable NOW and (b) outside the
     Windows-excluded ranges — 50052 grandfathered too.
@@ -267,16 +280,16 @@ def test_launch_model_report_carries_actual_port(monkeypatch, stub_cfg):
 
 # ---------------- debug env on every launch path ----------------
 
-def test_rpc_env_exports_carries_sched_debug():
-    """rpc-server launches must always run with GGML_SCHED_DEBUG /
-    RPC_DEBUG so the peer logs show per-tensor placement."""
+def test_rpc_env_exports_carries_sched_debug(debug_on):
+    """With debug logging on, rpc-server launches run with
+    GGML_SCHED_DEBUG / RPC_DEBUG so the peer logs show per-tensor placement."""
     env = rpc_manager._rpc_env_exports({"name": "aibox3"})
     assert "GGML_SCHED_DEBUG=3" in env
     assert "GGML_RPC_DEBUG=3" in env
     assert "GGML_RPC_NO_RDMA=1" in env
 
 
-def test_rpc_env_exports_rdma_keeps_debug():
+def test_rpc_env_exports_rdma_keeps_debug(debug_on):
     """RDMA peers keep the debug vars alongside the RDMA pinning."""
     env = rpc_manager._rpc_env_exports(
         {"name": "r", "rdma": True, "rdma_dev": "mlx5_0", "rdma_gid": "3"})
@@ -286,7 +299,7 @@ def test_rpc_env_exports_rdma_keeps_debug():
     assert "GGML_RPC_NO_RDMA" not in env
 
 
-def test_device_env_exports_carries_sched_debug():
+def test_device_env_exports_carries_sched_debug(debug_on):
     """llama-server launches (scripts AND live path) need the sched
     debug + device-order exports."""
     env = rpc_manager._device_env_exports({"name": "aibox1"})
@@ -295,7 +308,19 @@ def test_device_env_exports_carries_sched_debug():
     assert "CUDA_DEVICE_ORDER=PCI_BUS_ID" in env
 
 
-def test_start_llama_server_prepends_machine_env(monkeypatch, tmp_path):
+def test_debug_env_off_sets_zero(debug_off):
+    """Off (the default): the variables are still set, to "0", which
+    behaves like unset and overrides the peer agent's own "3" default."""
+    env = rpc_manager._rpc_env_exports({"name": "aibox3"})
+    assert "GGML_SCHED_DEBUG=0" in env
+    assert "GGML_RPC_DEBUG=0" in env
+    assert "=3" not in env
+    env = rpc_manager._device_env_exports({"name": "aibox1"})
+    assert "GGML_SCHED_DEBUG=0" in env
+    assert "CUDA_DEVICE_ORDER=PCI_BUS_ID" in env
+
+
+def test_start_llama_server_prepends_machine_env(monkeypatch, tmp_path, debug_on):
     """The live launch path must run the server with the machine env
     (previously only the rendered scripts had it)."""
     m = _local_machine()
@@ -357,7 +382,7 @@ def _render_rpc_script(stub_cfg):
     return _render_rpc(model, master, [p1, p2])
 
 
-def test_render_single_node_has_port_preflight(stub_cfg):
+def test_render_single_node_has_port_preflight(stub_cfg, debug_on):
     """Single-node scripts must fail fast with a clear message when a
     foreign process holds llama-swap's assigned port."""
     model = {"model_id": "single-test", "flags": {},

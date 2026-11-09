@@ -3660,7 +3660,8 @@ async def get_settings():
     import yaml
     defaults = {"model_dir": "store://llm-models",
                 "llama_bin": "~/llama.cpp/build/bin",
-                "theme_family": "nord", "theme_mode": "dark"}
+                "theme_family": "nord", "theme_mode": "dark",
+                "debug_logging": False}
     if os.path.exists(SETTINGS_FILE):
         with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
@@ -3717,6 +3718,9 @@ class AppSettingsIn(pydantic.BaseModel):
     hf_token: str | None = None  # only a non-empty value updates the stored token
     clear_hf_token: bool = False
     engine: str | None = None  # llama_cpp — None leaves the stored value
+    # verbose llama.cpp debug output for the Flow Visualizer (see
+    # debug_logging.py) — None leaves the stored value; admin-only
+    debug_logging: bool | None = None
 
 
 async def _restart_everything_for_engine(new_engine: str):
@@ -3810,6 +3814,7 @@ async def save_settings(s: AppSettingsIn, r: Request):
         or access.is_admin(None)
     _key_name_for_ui = access.key_display_name()
     if not _control_identity and (s.engine is not None
+                                  or s.debug_logging is not None
                                   or s.hf_token or s.clear_hf_token):
         raise HTTPException(404, "not found")
     # merge over the CURRENT FILE so unknown/future keys survive the write;
@@ -3821,6 +3826,11 @@ async def save_settings(s: AppSettingsIn, r: Request):
     tok = (update.pop("hf_token", None) or "").strip()
     clear_tok = update.pop("clear_hf_token", False)
     engine = update.pop("engine", None)
+    debug_on = update.pop("debug_logging", None)
+    if debug_on is not None:
+        # read at the next launch: rpc-servers already running keep their
+        # environment until Stop All + Launch All
+        current["debug_logging"] = bool(debug_on)
     # per-key UI state: scoped identities write theme_family/theme_mode
     # into THEIR access_keys ui: block instead of the shared file —
     # farm-wide state untouched.

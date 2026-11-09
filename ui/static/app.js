@@ -6775,6 +6775,12 @@ on("#theme-builder-save", "click", saveThemeBuilder);
 on("#theme-builder-delete", "click", deleteThemeBuilder);
 // (light-mode checkbox was replaced by the segmented #theme-mode-seg control)
 
+// Flow Visualizer has nothing to animate while debug logging is off
+function applyDebugLoggingHint(s) {
+  const h = $("#flow-debug-off-hint");
+  if (h) h.hidden = !!(s && s.debug_logging);
+}
+
 async function loadSettings() {
   try {
     const s = await api("GET", "/api/settings");
@@ -6788,8 +6794,11 @@ async function loadSettings() {
         ? "Token saved — gated models will use it. Paste a new one to replace."
         : "Not set — gated downloads will 401.";
     }
+    const dbg = $("#set-debug-logging");
+    if (dbg) dbg.checked = !!s.debug_logging;
     appSettings = s;
     applyEngineHints(s);
+    applyDebugLoggingHint(s);
     if (s.theme_family && !localStorage.getItem("ui-theme-family")) {
       localStorage.setItem("ui-theme-family", s.theme_family);
       localStorage.setItem("ui-theme-mode", "dark");
@@ -6814,6 +6823,8 @@ on("#set-save", "click", async (e) => {
     if (tok) payload.hf_token = tok;
     const engSel = $("#set-engine");
     if (engSel?.value) payload.engine = engSel.value;
+    const dbg = $("#set-debug-logging");
+    if (dbg) payload.debug_logging = dbg.checked;
     const saved = await api("POST", "/api/settings", payload);
     // engine flip (T4-G7): wholesale refresh, not a merge. The POST
     // response lacks ui_manifest (only GET injects it), and every
@@ -6827,6 +6838,7 @@ on("#set-save", "click", async (e) => {
     const prevEngine = (appSettings || {}).engine;
     appSettings = await api("GET", "/api/settings");
     applyEngineHints(appSettings);
+    applyDebugLoggingHint(appSettings);
     if ((appSettings.engine || "llama_cpp") !== (prevEngine || "llama_cpp")) {
       // wholesale re-render: models table + scan list are engine-filtered
       // server-side (DEC-07/DEC-11), downloads pane is manifest-driven

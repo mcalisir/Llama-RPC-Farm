@@ -366,6 +366,7 @@
     <section id="tab-visualizer" class="tab">
       <h2>Flow Visualizer <span id="flow-status" class="serving-ind">…</span></h2>
       <p class="hint">Real per-tensor GPU/device assignment from llama.cpp (GGML_SCHED_DEBUG) — watch tensors move across machines and GPUs as models run.</p>
+      <p class="hint" id="flow-debug-off-hint" hidden>Debug logging is off, so llama.cpp writes no per-tensor lines to animate. Turn on “Verbose llama.cpp debug logging” in Settings &gt; Defaults, then Stop All + Launch All.</p>
       <div class="flow-canvas-wrap" style="position:relative">
         <canvas id="flow-waves" aria-hidden="true"></canvas>
         <div id="flow-canvas" class="flow-canvas">
@@ -1199,7 +1200,15 @@ technical | bugs, errors, login problems</textarea></label>
               <small class="hint" id="set-hf-token-hint">Not set — gated downloads will 401.</small>
             </label>
           </div>
-          <p class="hint" style="margin:-8px 0 10px">Saved to <code>config/settings.yaml</code> as <code>hf_token</code> (or set <code>HF_TOKEN</code> env). Needed only after you've clicked “Agree and access repository” on the gated HF page.</p>        <div data-engine="llama_cpp">
+          <p class="hint" style="margin:-8px 0 10px">Saved to <code>config/settings.yaml</code> as <code>hf_token</code> (or set <code>HF_TOKEN</code> env). Needed only after you've clicked “Agree and access repository” on the gated HF page.</p>
+          <div class="row">
+            <label class="wide" style="display:flex;align-items:center;gap:6px">
+              <input type="checkbox" id="set-debug-logging" style="width:auto;margin:0">
+              Verbose llama.cpp debug logging (Flow Visualizer)
+            </label>
+          </div>
+          <p class="hint" style="margin:-8px 0 10px">Runs llama-server with <code>-v</code> and every server with <code>GGML_SCHED_DEBUG=3</code> / <code>GGML_RPC_DEBUG=3</code>, which the Flow Visualizer animates. It writes lines for every compute step: a peer's rpc-server log grew by more than 1 GB in an hour under steady embedding traffic. Off by default. Takes effect after Stop All + Launch All.</p>
+        <div data-engine="llama_cpp">
         </div>
         <div id="install-all-status" style="margin-top:8px" hidden></div>
         <div class="row" style="margin-top:12px">

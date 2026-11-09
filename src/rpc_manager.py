@@ -870,8 +870,6 @@ def _win_launcher(machine, port, expose=None, device_list=None, parametrized=Fal
         # -f would only expand the last string and leave literal {0}.
         return f"""param([int]$Port = {port}, [string]$LogName = '{log_name}', [string]$ExtraArgs = "")
 $ErrorActionPreference = 'Stop'
-$env:GGML_SCHED_DEBUG="3"
-$env:GGML_RPC_DEBUG="3"
 {win_env_lines}$exe = {_win_exe_expr(machine)}
 $log = Join-Path $env:USERPROFILE $LogName
 if (-not (Test-Path $exe)) {{ Write-Error "not found: $exe"; exit 1 }}
@@ -892,8 +890,6 @@ if ($r.ReturnValue -ne 0) {{ Write-Error "Win32_Process.Create failed: $($r.Retu
 Write-Output "started pid $($r.ProcessId)"
 """
     return f"""$ErrorActionPreference = 'Stop'
-$env:GGML_SCHED_DEBUG="3"
-$env:GGML_RPC_DEBUG="3"
 {win_env_lines}$exe = {_win_exe_expr(machine)}
 $log = Join-Path $env:USERPROFILE '{log_name}'
 if (-not (Test-Path $exe)) {{ Write-Error "not found: $exe"; exit 1 }}
@@ -1416,11 +1412,13 @@ def build_llama_command(model_cfg, servers, master_name=None):
     # Visualizer ground truth: llama-server only logs the verbose
     # "http: streamed chunk" lines that drive the upstream fallback
     # (single-node/single-GPU models have no cross-device sched events)
-    # when -v is on. Always inject unless the model already sets them.
+    # when -v is on. Injected only while the debug_logging setting is on
+    # (verbose output floods the log); a model's own -v is always kept.
+    import debug_logging
     def _flag_set(*names):
         return any(k.lstrip("-") in names for k in flags)
     injected = {}
-    if not _flag_set("v", "verbose"):
+    if not _flag_set("v", "verbose") and debug_logging.enabled():
         injected["-v"] = True
     if not _flag_set("log-timestamps"):
         injected["log-timestamps"] = True
@@ -2007,10 +2005,10 @@ def _rpc_env_exports(machine):
     """Per-machine env prefix for ggml-rpc-server launches (both the
     live start_rpc() remote command and rendered launcher scripts).
 
-    Always includes GGML_SCHED_DEBUG=3 / GGML_RPC_DEBUG=3: real
-    per-tensor backend assignment + RPC peer logs are the ground truth
-    the visualizer and log tails animate — a silent rpc-server is
-    undebuggable.
+    Always sets GGML_SCHED_DEBUG / GGML_RPC_DEBUG explicitly: "3" when
+    the debug_logging setting is on (the Flow Visualizer animates those
+    per-command lines), else "0", which also overrides the peer agent's
+    own "3" default. See debug_logging.py for why it is off by default.
 
     rdma=False (default): export GGML_RPC_NO_RDMA=1 — pure TCP RPC. A wedged
     RoCE QP (seen under heavy sustained tensor streaming on mlx4) freezes the
@@ -2032,7 +2030,8 @@ def _rpc_env_exports(machine):
     beats ordering, and old runtimes that fail CUDA init outright under
     PCI_BUS_ID (seen live: v7-era ggml on winbox) enumerate cleanly under
     a UUID list. No UUIDs -> the order pin (status quo)."""
-    pre = "GGML_SCHED_DEBUG=3 GGML_RPC_DEBUG=3 "
+    import debug_logging
+    pre = debug_logging.exports()
     try:
         _vv = gpu_vendor.normalize_vendor((machine or {}).get("gpu_vendor"))
     except Exception:
@@ -2148,7 +2147,8 @@ def _device_env_exports(master):
     # copies — ground truth the flow visualizer animates. GGML_RPC_DEBUG=3:
     # same for the RPC peer itself (single-RPC models like winbox-only would
     # otherwise be silent — the host has nothing to schedule).
-    sched = "export GGML_SCHED_DEBUG=3\nexport GGML_RPC_DEBUG=3"
+    import debug_logging
+    sched = "\n".join(f"export {k}={v}" for k, v in debug_logging.env().items())
     rdma = ""
     if master.get("rdma"):
         if master.get("rdma_dev"):

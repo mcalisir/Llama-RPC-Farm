@@ -53,9 +53,12 @@ def test_no_rpc_when_single_node(stub_cfg, monkeypatch):
 
 # ---------------- build_llama_command: visualizer flags injected ----------------
 
-def test_verbose_flags_injected_when_absent(stub_cfg):
-    """The Flow Visualizer's upstream fallback needs -v; build_llama_command
-    injects -v --log-timestamps --log-prefix when the model doesn't set them."""
+def test_verbose_flags_injected_when_absent(stub_cfg, monkeypatch):
+    """The Flow Visualizer's upstream fallback needs -v; with debug logging
+    on, build_llama_command injects -v --log-timestamps --log-prefix when
+    the model doesn't set them."""
+    import debug_logging
+    monkeypatch.setattr(debug_logging, "enabled", lambda: True)
     model = {"model_id": "m", "flags": {"ctx-size": 8192},
              "base_path": "store://llm-models/x.gguf"}
     master = _machine("aibox1", "10.0.0.98", role="master")
@@ -65,6 +68,22 @@ def test_verbose_flags_injected_when_absent(stub_cfg):
     assert "-v " in flat or flat.endswith("-v") or " -v " in flat
     assert "--log-timestamps" in flat
     assert "--log-prefix" in flat
+
+
+def test_verbose_flag_not_injected_when_debug_off(stub_cfg, monkeypatch):
+    """Debug logging off (default): no -v; the cheap timestamp/prefix
+    flags stay. A model's own -v is kept (next test)."""
+    import debug_logging
+    monkeypatch.setattr(debug_logging, "enabled", lambda: False)
+    model = {"model_id": "m", "flags": {"ctx-size": 8192},
+             "base_path": "store://llm-models/x.gguf"}
+    master = _machine("aibox1", "10.0.0.98", role="master")
+    stub_cfg.update({master["name"]: master})
+    cmd = build_llama_command(model, [master["name"]], master_name=master["name"])
+    toks = shlex.split(cmd.replace("\\\n", " ").replace("${PORT}", "8080"))
+    assert "-v" not in toks
+    assert "--log-timestamps" in toks
+    assert "--log-prefix" in toks
 
 
 def test_verbose_flags_not_duplicated_when_present(stub_cfg):

@@ -78,8 +78,9 @@ main: start each peer through its agent, wait for port/open (or /rpc/list),
 trap → stop only the peers this run started (per-port, co-serve safe)
 ```
 
-No shell transport is emitted. Env baked into scripts: `GGML_SCHED_DEBUG=3` +
-`GGML_RPC_DEBUG=3` (visualizer + log tails ground truth),
+No shell transport is emitted. Env baked into scripts: `GGML_SCHED_DEBUG` +
+`GGML_RPC_DEBUG` (`3` when the `debug_logging` setting is on, for the
+visualizer; `0` otherwise, see [visualizer.md](visualizer.md#debug-logging-setting)),
 `CUDA_DEVICE_ORDER=PCI_BUS_ID`, `GGML_CUDA_P2P=1`, and RDMA gating
 (`GGML_RPC_NO_RDMA=1` default; `GGML_RDMA_DEV/GGML_RDMA_GID/USE_CM` when
 enabled). Agent tokens come from `swap-secrets.env` at runtime, never baked.
@@ -87,8 +88,9 @@ enabled). Agent tokens come from `swap-secrets.env` at runtime, never baked.
 ## llama-server command (`build_llama_command`)
 
 - Model path resolved per target OS via `store://`.
-- Flags emitted in stored order; `-v --log-timestamps --log-prefix`
-  injected (visualizer's upstream fallback needs verbose chunk logs).
+- Flags emitted in stored order; `--log-timestamps --log-prefix`
+  injected, plus `-v` while `debug_logging` is on (visualizer's upstream
+  fallback needs verbose chunk logs). A model's own `-v` is always kept.
 - String flag values are `shlex.quote`d.
 - `--device` from device_order (chip → real token mapping; `--device` on
   the master embeds `RPC<N>` tokens for peers).
