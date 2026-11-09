@@ -7022,6 +7022,83 @@ async def swap_activity(limit: int = 200):
         return {"running": True, "rows": [], "models": [], "error": str(e)}
 
 
+# In-flight requests: llama-swap pushes "inflight" messages on its event
+# stream (/api/events): a snapshot on connect, then upsert/remove per
+# request. The farm relays only those (plus a nudge when a request lands
+# in the activity log), trimmed to what the Activity tab shows: no
+# headers, and for scoped keys only their granted models, no client.
+
+def _inflight_row(r, scoped):
+    return {"id": str(r.get("id") or ""), "ts": r.get("timestamp"),
+            "model": r.get("model") or "", "path": r.get("req_path") or "",
+            "method": r.get("method") or "",
+            "src": None if scoped else (r.get("remote_ip") or ""),
+            "resp_bytes": r.get("resp_bytes") or 0,
+            "elapsed_ms": r.get("elapsed_ms") or 0}
+
+
+def _inflight_frame(msg, allowed):
+    """One llama-swap event-stream message -> the frame sent to the
+    browser, or None to skip it. allowed is _caller_model_filter()."""
+    kind = msg.get("type")
+    if kind == "activity":
+        return {"op": "activity"}
+    if kind != "inflight":
+        return None
+    try:
+        d = json.loads(msg.get("data") or "{}")
+    except (TypeError, ValueError):
+        return None
+    scoped = allowed is not None
+    op = d.get("operation")
+    if op == "snapshot":
+        reqs = [r for r in (d.get("requests") or [])
+                if not scoped or allowed(r.get("model"))]
+        return {"op": "snapshot",
+                "requests": [_inflight_row(r, scoped) for r in reqs]}
+    if op == "upsert" and isinstance(d.get("request"), dict):
+        r = d["request"]
+        if scoped and not allowed(r.get("model")):
+            return None
+        return {"op": "upsert", "request": _inflight_row(r, scoped)}
+    if op == "remove" and d.get("id"):
+        return {"op": "remove", "id": str(d["id"])}
+    return None
+
+
+@app.get("/api/swap/inflight/stream")
+async def swap_inflight_stream():
+    """Server-sent events: requests llama-swap is serving right now."""
+    import httpx
+    st = swap_manager.status()
+    allowed = _caller_model_filter()
+
+    async def gen():
+        if not st.get("running"):
+            yield f"data: {json.dumps({'op': 'down'})}\n\n"
+            return
+        url = _swap_api_url(st, "/api/events")
+        timeout = httpx.Timeout(connect=5.0, read=None, write=10.0, pool=10.0)
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                async with client.stream("GET", url) as up:
+                    async for line in up.aiter_lines():
+                        if not line.startswith("data:"):
+                            continue
+                        try:
+                            msg = json.loads(line[5:])
+                        except ValueError:
+                            continue
+                        frame = _inflight_frame(msg, allowed)
+                        if frame is not None:
+                            yield f"data: {json.dumps(frame)}\n\n"
+        except httpx.HTTPError as e:
+            yield f"data: {json.dumps({'op': 'error', 'error': str(e)})}\n\n"
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache"})
+
+
 @app.get("/api/swap/capture/{capture_id}")
 async def swap_capture(capture_id: str):
     """Headers and body of one proxied request, for the Activity tab's

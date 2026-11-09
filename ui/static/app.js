@@ -9601,8 +9601,93 @@ async function smRefresh() {
   }
   smBusy = false;
 }
-function smStart() { smRefresh(); clearInterval(smTimer); smTimer = setInterval(smRefresh, 5000); }
-function smStop() { clearInterval(smTimer); smTimer = null; }
+/* Active now: requests llama-swap is serving at this moment. llama-swap
+   pushes them on its event stream; the farm relays them on
+   /api/swap/inflight/stream (read with fetch so a pasted access key
+   rides along like on every other call). Elapsed time counts up locally
+   from the last figure llama-swap sent. */
+const smInflight = new Map();               // id -> row + local receive time
+let smLiveCtrl = null, smLiveTick = null, smLiveNote = "", smLastNudge = 0;
+const smBytes = (b) => !b ? "–" : b < 1024 ? `${b} B` : b < 1e6 ? `${(b / 1024).toFixed(1)} KB` : fmtBytes(b);
+function smRenderInflight() {
+  const box = $("#sm-inflight"), cnt = $("#sm-inflight-count");
+  if (!box) return;
+  const rows = [...smInflight.values()].sort((a, b) =>
+    (Date.parse(a.ts) - Date.parse(b.ts)) || a.id.localeCompare(b.id, undefined, {numeric: true}));
+  if (cnt) cnt.textContent = rows.length ? `· ${rows.length}` : "";
+  if (!rows.length) {
+    box.innerHTML = `<p class="hint">${escHtml(smLiveNote || "Nothing running right now.")}</p>`;
+    return;
+  }
+  const client = rows.some(r => r.src != null);
+  const now = performance.now();
+  box.innerHTML = `<table class="sm-table"><thead><tr><th>Started</th><th>Model</th><th>Path</th><th>Running for</th><th>Sent back</th>${client ? "<th>Client</th>" : ""}</tr></thead><tbody>${
+    rows.map(r => `<tr><td><i class="fa-solid fa-spinner fa-spin sm-caret"></i> ${escHtml(smTimeS(r.ts))}</td><td>${escHtml(r.model || "–")}</td><td><code>${escHtml(`${r.method} ${r.path}`.trim())}</code></td><td>${smDur(r.elapsed_ms + (now - r.at))}</td><td>${smBytes(r.resp_bytes)}</td>${client ? `<td>${escHtml(r.src || "")}</td>` : ""}</tr>`).join("")
+  }</tbody></table>`;
+}
+function smLiveFrame(f) {
+  const put = r => smInflight.set(r.id, {...r, at: performance.now()});
+  if (f.op === "snapshot") { smInflight.clear(); (f.requests || []).forEach(put); smLiveNote = ""; }
+  else if (f.op === "upsert" && f.request) put(f.request);
+  else if (f.op === "remove") smInflight.delete(f.id);
+  else if (f.op === "down") { smInflight.clear(); smLiveNote = "llama-swap is not running — use Launch All."; }
+  else if (f.op === "error") { smInflight.clear(); smLiveNote = `Live view unavailable: ${f.error}`; }
+  else if (f.op === "activity") {
+    // a request just landed in llama-swap's log: refresh the tables, at most every 2 s
+    const t = Date.now();
+    if (t - smLastNudge > 2000) { smLastNudge = t; smRefresh(); }
+    return;
+  }
+  smRenderInflight();
+}
+async function smLiveLoop(ctrl) {
+  while (!ctrl.signal.aborted) {
+    try {
+      const headers = {};
+      if (_accessKey) headers["Authorization"] = `Bearer ${_accessKey}`;
+      const res = await fetch("/api/swap/inflight/stream", {headers, signal: ctrl.signal});
+      if (!res.ok) throw new Error(res.statusText || `HTTP ${res.status}`);
+      const reader = res.body.getReader(), dec = new TextDecoder();
+      let buf = "";
+      for (;;) {
+        const {value, done} = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, {stream: true});
+        let i;
+        while ((i = buf.indexOf("\n\n")) >= 0) {
+          const chunk = buf.slice(0, i);
+          buf = buf.slice(i + 2);
+          for (const line of chunk.split("\n")) {
+            if (!line.startsWith("data:")) continue;
+            try { smLiveFrame(JSON.parse(line.slice(5))); } catch (_) { /* skip a bad frame */ }
+          }
+        }
+      }
+    } catch (e) {
+      if (ctrl.signal.aborted) return;
+      smInflight.clear();
+      smLiveNote = `Live view reconnecting… (${e.message})`;
+      smRenderInflight();
+    }
+    // stream ended (llama-swap stopped or restarted): try again shortly
+    await new Promise(r => setTimeout(r, 3000));
+  }
+}
+function smLiveStart() {
+  if (smLiveCtrl) return;
+  smLiveCtrl = new AbortController();
+  smLiveLoop(smLiveCtrl);
+  clearInterval(smLiveTick);
+  smLiveTick = setInterval(() => { if (smInflight.size) smRenderInflight(); }, 500);
+}
+function smLiveStop() {
+  if (smLiveCtrl) smLiveCtrl.abort();
+  smLiveCtrl = null;
+  clearInterval(smLiveTick); smLiveTick = null;
+  smInflight.clear(); smLiveNote = "";
+}
+function smStart() { smRefresh(); smLiveStart(); clearInterval(smTimer); smTimer = setInterval(smRefresh, 5000); }
+function smStop() { clearInterval(smTimer); smTimer = null; smLiveStop(); }
 on("#sm-refresh", "click", smRefresh);
 
 /* ---------------- Performance (farm's own per-machine history) ----------------

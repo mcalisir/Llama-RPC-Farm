@@ -94,3 +94,58 @@ def test_speed_ignores_cold_start_and_uses_wall_time():
     assert sp["median_tps"] == 1000.0               # the load does not drag it
     assert sp["window_s"] == 73.0                    # 03:00:00-60 s .. 03:00:13
     assert sp["throughput_tps"] == round(3002 / 73.0, 1)   # failed row excluded
+
+
+# ---------------- in-flight relay (/api/swap/inflight/stream) ----------------
+
+def _ev(kind, data):
+    import json
+    return {"type": kind, "data": json.dumps(data)}
+
+
+def _req(i, model, ip="192.168.1.50"):
+    return {"id": str(i), "timestamp": "2026-11-09T04:51:36+03:00",
+            "model": model, "req_path": "/v1/embeddings", "method": "POST",
+            "remote_ip": ip, "resp_bytes": 0, "elapsed_ms": 1290,
+            "req_headers": {"Authorization": "[REDACTED]"},
+            "resp_headers": {"Server": "llama.cpp"}}
+
+
+def test_inflight_frames_unscoped():
+    f = app_module._inflight_frame(
+        _ev("inflight", {"operation": "snapshot",
+                         "requests": [_req(1, "emb"), _req(2, "chat")]}), None)
+    assert f["op"] == "snapshot"
+    assert [r["id"] for r in f["requests"]] == ["1", "2"]
+    r = f["requests"][0]
+    assert r == {"id": "1", "ts": "2026-11-09T04:51:36+03:00", "model": "emb",
+                 "path": "/v1/embeddings", "method": "POST",
+                 "src": "192.168.1.50", "resp_bytes": 0, "elapsed_ms": 1290}
+    up = app_module._inflight_frame(
+        _ev("inflight", {"operation": "upsert", "request": _req(3, "emb")}), None)
+    assert up["op"] == "upsert" and up["request"]["id"] == "3"
+    assert app_module._inflight_frame(
+        _ev("inflight", {"operation": "remove", "id": "3"}), None) == {"op": "remove", "id": "3"}
+    # an empty snapshot (nothing running) is still sent
+    assert app_module._inflight_frame(
+        _ev("inflight", {"operation": "snapshot"}), None) == {"op": "snapshot", "requests": []}
+
+
+def test_inflight_frames_scoped_hide_other_models_and_client():
+    allowed = lambda mid: mid == "emb"
+    f = app_module._inflight_frame(
+        _ev("inflight", {"operation": "snapshot",
+                         "requests": [_req(1, "emb"), _req(2, "chat")]}), allowed)
+    assert [r["id"] for r in f["requests"]] == ["1"]
+    assert f["requests"][0]["src"] is None
+    assert app_module._inflight_frame(
+        _ev("inflight", {"operation": "upsert", "request": _req(2, "chat")}), allowed) is None
+
+
+def test_inflight_frames_skip_other_events():
+    assert app_module._inflight_frame({"type": "activity", "data": "{}"}, None) == {"op": "activity"}
+    assert app_module._inflight_frame({"type": "modelStatus", "data": "[]"}, None) is None
+    assert app_module._inflight_frame({"type": "logData", "data": "x"}, None) is None
+    assert app_module._inflight_frame({"type": "inflight", "data": "not json"}, None) is None
+    assert app_module._inflight_frame(
+        _ev("inflight", {"operation": "upsert"}), None) is None

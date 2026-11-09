@@ -398,7 +398,11 @@
         <h2 style="margin:0">Activity <span id="sm-status" class="serving-ind">…</span></h2>
         <button class="flow-ctrl-btn" id="sm-refresh" title="Refresh now"><i class="fa-solid fa-rotate"></i></button>
       </div>
-      <p class="hint">Requests recorded by llama-swap, the server every client request goes through. Refreshes every 5 s while this tab is open.</p>
+      <p class="hint">Requests recorded by llama-swap, the server every client request goes through. Active requests update live; the rest refreshes every 5 s while this tab is open.</p>
+      <div class="card">
+        <h3>Active now <span class="hint" id="sm-inflight-count"></span></h3>
+        <div id="sm-inflight" class="sm-rows"><p class="hint">connecting…</p></div>
+      </div>
       <div class="sm-tiles" id="sm-tiles"></div>
       <div class="card">
         <h3>Per model <span class="hint" id="sm-models-note"></span></h3>
