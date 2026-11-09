@@ -1034,13 +1034,10 @@ def test_processes_windows_and_macos_listing(monkeypatch):
 def test_processes_stop_and_log_errors(monkeypatch, tmp_path):
     from llama_peer_agent import processes as p
     c = AgentConfig(token="t", log_dir=str(tmp_path), state_dir=str(tmp_path))
-    # log open failure
-    real_open = open
+    # log open failure (logs are opened in append mode via logfiles)
     def bad_open(path, *a, **k):
-        if "rpc-server" in str(path) or "llama-server" in str(path):
-            raise OSError("x")
-        return real_open(path, *a, **k)
-    monkeypatch.setattr("builtins.open", bad_open)
+        raise OSError("x")
+    monkeypatch.setattr(p.logfiles, "open_append", bad_open)
     monkeypatch.setattr(p, "list_llama_processes", lambda: [])
     monkeypatch.setattr(p, "_port_open", lambda port: False)
     monkeypatch.setattr(p, "llama_binary", lambda c: "/bin/llama-server")

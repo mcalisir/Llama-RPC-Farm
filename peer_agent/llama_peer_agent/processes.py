@@ -13,6 +13,7 @@ import uuid
 from pathlib import Path
 
 from .config import AgentConfig
+from . import logfiles
 
 _PORT_RE = re.compile(r"(?:^|\s)(?:-p|--port)\s+(\d+)(?:\s|$)")
 _LISTEN_RE = re.compile(r"--listen[=\s]+[^\s]*:(\d+)")
@@ -453,7 +454,7 @@ def start_llama(config: AgentConfig, port: int, args: list, env: dict,
     full_env.setdefault("GGML_SCHED_DEBUG", "3")
     full_env.setdefault("GGML_RPC_DEBUG", "3")
     try:
-        logf = open(log_path, "w", encoding="utf-8")
+        logf = logfiles.open_append(log_path)
     except OSError as e:
         return {"running": False, "loading": False, "reused": False,
                 "port": port, "error": f"cannot open log {log_path}: {e}"}
@@ -566,7 +567,7 @@ def ensure_rpc(config: AgentConfig, port: int, devices: list,
     full_env.setdefault("GGML_SCHED_DEBUG", "3")
     full_env.setdefault("GGML_RPC_DEBUG", "3")
     try:
-        logf = open(log_path, "w", encoding="utf-8")
+        logf = logfiles.open_append(log_path)
     except OSError as e:
         return {"running": False, "reused": False, "port": port,
                 "error": f"cannot open log {log_path}: {e}"}
@@ -673,10 +674,10 @@ def logs_tail(config: AgentConfig, name: str, lines: int = 20) -> dict:
     else:
         path = _log_dir(config) / "llama-swap.log"
     try:
-        text = path.read_text(encoding="utf-8", errors="replace")
+        # only the end of the file: debug logs grow to gigabytes
+        tail = logfiles.tail_lines(path, lines)
     except OSError:
         return {"name": name, "path": str(path), "lines": [], "text": ""}
-    tail = text.splitlines()[-lines:]
     return {"name": name, "path": str(path), "lines": tail,
             "text": "\n".join(tail)}
 

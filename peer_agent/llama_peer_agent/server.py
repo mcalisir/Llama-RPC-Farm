@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 
+from . import logfiles
 from . import PROTOCOL_VERSION, __version__
 from .config import AgentConfig, ensure_dirs
 from . import processes
@@ -553,6 +554,10 @@ def serve(config: AgentConfig):
                 signal.signal(sig, _shutdown)
             except (OSError, ValueError):
                 pass
+    # keep the debug-heavy rpc/llama logs bounded (PEER_AGENT_LOG_KEEP_SEC)
+    if logfiles.start_rotation(processes._log_dir(config), processes._LOG_NAME_RE):
+        log.info("log rotation on: keeping the last %s s of each log",
+                 logfiles.KEEP_SEC)
     disc = None
     if config.discovery:
         try:
